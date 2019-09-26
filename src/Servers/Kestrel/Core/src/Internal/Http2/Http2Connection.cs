@@ -11,6 +11,7 @@ using System.IO.Pipelines;
 using System.Net.Http;
 using System.Net.Http.HPack;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Security.Authentication;
 using System.Text;
 using System.Threading;
@@ -1200,36 +1201,70 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         private bool IsPseudoHeaderField(ReadOnlySpan<byte> name, out PseudoHeaderFields headerField)
         {
-            headerField = PseudoHeaderFields.None;
+            headerField = PseudoHeaderFields.Unknown;
 
             if (name.IsEmpty || name[0] != (byte)':')
             {
+                headerField = PseudoHeaderFields.None;
                 return false;
             }
 
-            if (name.SequenceEqual(PathBytes))
+            // without :
+            ref byte nameRef = ref MemoryMarshal.GetReference(name.Slice(1));
+
+            // :path is the only header with length 5
+            if (name.Length == 5)
             {
-                headerField = PseudoHeaderFields.Path;
-            }
-            else if (name.SequenceEqual(MethodBytes))
-            {
-                headerField = PseudoHeaderFields.Method;
-            }
-            else if (name.SequenceEqual(SchemeBytes))
-            {
-                headerField = PseudoHeaderFields.Scheme;
-            }
-            else if (name.SequenceEqual(StatusBytes))
-            {
-                headerField = PseudoHeaderFields.Status;
-            }
-            else if (name.SequenceEqual(AuthorityBytes))
-            {
-                headerField = PseudoHeaderFields.Authority;
+                int nameAsInt = Unsafe.ReadUnaligned<int>(ref nameRef);
+                if (nameAsInt == Unsafe.ReadUnaligned<int>(ref MemoryMarshal.GetReference(PathBytes.Slice(1))))
+                {
+                    headerField = PseudoHeaderFields.Path;
+                }
             }
             else
             {
-                headerField = PseudoHeaderFields.Unknown;
+                // :authority is the only header with length 10
+                if (name.Length == 10)
+                {
+                    long nameAsLong = Unsafe.ReadUnaligned<long>(ref nameRef);
+                    ref byte authority = ref MemoryMarshal.GetReference(AuthorityBytes.Slice(1));
+
+                    if (nameAsLong == Unsafe.ReadUnaligned<long>(ref authority)
+                        && Unsafe.Add(ref nameRef, 8) == Unsafe.Add(ref authority, 8))
+                    {
+                        headerField = PseudoHeaderFields.Authority;
+                    }
+                }
+                // :method, :scheme, and :status are of length 7
+                else if (name.Length == 7)
+                {
+                    int nameAsInt = Unsafe.ReadUnaligned<int>(ref nameRef);
+                    short nameRemainderAsShort = Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref nameRef, sizeof(int)));
+
+                    ref byte method = ref MemoryMarshal.GetReference(MethodBytes.Slice(1));
+                    ref byte scheme = ref MemoryMarshal.GetReference(SchemeBytes.Slice(1));
+                    ref byte status = ref MemoryMarshal.GetReference(StatusBytes.Slice(1));
+
+                    if (nameAsInt == Unsafe.ReadUnaligned<int>(ref method)
+                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref method, sizeof(int))))
+                    {
+                        headerField = PseudoHeaderFields.Method;
+                    }
+                    else if (nameAsInt == Unsafe.ReadUnaligned<int>(ref scheme)
+                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref scheme, sizeof(int))))
+                    {
+                        headerField = PseudoHeaderFields.Scheme;
+                    }
+                    else if (nameAsInt == Unsafe.ReadUnaligned<int>(ref status)
+                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref status, sizeof(int))))
+                    {
+                        headerField = PseudoHeaderFields.Status;
+                    }
+                }
+                else
+                {
+                    headerField = PseudoHeaderFields.Unknown;
+                }
             }
 
             return true;
