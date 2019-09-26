@@ -1201,69 +1201,88 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         private bool IsPseudoHeaderField(ReadOnlySpan<byte> name, out PseudoHeaderFields headerField)
         {
-            headerField = PseudoHeaderFields.Unknown;
-
             if (name.IsEmpty || name[0] != (byte)':')
             {
                 headerField = PseudoHeaderFields.None;
                 return false;
             }
 
-            // without :
-            ref byte nameRef = ref MemoryMarshal.GetReference(name.Slice(1));
+            headerField = PseudoHeaderFields.Unknown;
 
-            // :path is the only header with length 5
-            if (name.Length == 5)
+            // without leading :
+            ReadOnlySpan<byte> nameWithoutLeadingColon = name.Slice(1);
+
+            // :path is the only header with length 5, so without leading colon it is the size of int
+            if (MemoryMarshal.TryRead(nameWithoutLeadingColon, out int nameAsInt))
             {
-                int nameAsInt = Unsafe.ReadUnaligned<int>(ref nameRef);
-                if (nameAsInt == Unsafe.ReadUnaligned<int>(ref MemoryMarshal.GetReference(PathBytes.Slice(1))))
+                Debug.Assert(PathBytes.Length == 5);
+
+                MemoryMarshal.TryRead(PathBytes.Slice(1), out int pathAsInt);
+                if (nameAsInt == pathAsInt)
                 {
                     headerField = PseudoHeaderFields.Path;
+                    return true;
                 }
             }
             else
             {
-                // :authority is the only header with length 10
-                if (name.Length == 10)
-                {
-                    long nameAsLong = Unsafe.ReadUnaligned<long>(ref nameRef);
-                    ref byte authority = ref MemoryMarshal.GetReference(AuthorityBytes.Slice(1));
+                // length of name is less than 5, so it can't be any known header -> short-circuit
+                return true;
+            }
 
-                    if (nameAsLong == Unsafe.ReadUnaligned<long>(ref authority)
-                        && Unsafe.Add(ref nameRef, 8) == Unsafe.Add(ref authority, 8))
-                    {
-                        headerField = PseudoHeaderFields.Authority;
-                    }
+            // :authority is the only header with length 10, all other remaining known headers are of length 7
+            if (nameWithoutLeadingColon.Length == 10 - 1)
+            {
+                Debug.Assert(AuthorityBytes.Length == 10);
+
+                MemoryMarshal.TryRead(nameWithoutLeadingColon, out long nameAsLong);
+                MemoryMarshal.TryRead(AuthorityBytes.Slice(1), out long authorityFirst8WithoutColon);
+
+                // compare the first 8 bytes (without leading :) as long, then the remaining byte separate
+
+                if (nameAsLong == authorityFirst8WithoutColon && nameWithoutLeadingColon[9 - 1] == AuthorityBytes[9])
+                {
+                    headerField = PseudoHeaderFields.Authority;
+                    return true;
                 }
-                // :method, :scheme, and :status are of length 7
-                else if (name.Length == 7)
+            }
+
+            // :method, :scheme, and :status are of length 7
+            if (nameWithoutLeadingColon.Length == 7 - 1)
+            {
+                // without leading : we have 6 bytes, so compare the first 4 as int, then the remaining
+                // two bytes as ushort
+
+                MemoryMarshal.TryRead(nameWithoutLeadingColon.Slice(sizeof(int)), out ushort nameRemainderAsShort);
+
+                Debug.Assert(MethodBytes.Length == 7);
+                MemoryMarshal.TryRead(MethodBytes.Slice(1), out int methodAsInt);
+                MemoryMarshal.TryRead(MethodBytes.Slice(1 + sizeof(int)), out ushort methodRemainderAsShort);
+
+                if (nameAsInt == methodAsInt && nameRemainderAsShort == methodRemainderAsShort)
                 {
-                    int nameAsInt = Unsafe.ReadUnaligned<int>(ref nameRef);
-                    short nameRemainderAsShort = Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref nameRef, sizeof(int)));
-
-                    ref byte method = ref MemoryMarshal.GetReference(MethodBytes.Slice(1));
-                    ref byte scheme = ref MemoryMarshal.GetReference(SchemeBytes.Slice(1));
-                    ref byte status = ref MemoryMarshal.GetReference(StatusBytes.Slice(1));
-
-                    if (nameAsInt == Unsafe.ReadUnaligned<int>(ref method)
-                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref method, sizeof(int))))
-                    {
-                        headerField = PseudoHeaderFields.Method;
-                    }
-                    else if (nameAsInt == Unsafe.ReadUnaligned<int>(ref scheme)
-                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref scheme, sizeof(int))))
-                    {
-                        headerField = PseudoHeaderFields.Scheme;
-                    }
-                    else if (nameAsInt == Unsafe.ReadUnaligned<int>(ref status)
-                        && nameRemainderAsShort == Unsafe.ReadUnaligned<short>(ref Unsafe.Add(ref status, sizeof(int))))
-                    {
-                        headerField = PseudoHeaderFields.Status;
-                    }
+                    headerField = PseudoHeaderFields.Method;
+                    return true;
                 }
-                else
+
+                Debug.Assert(SchemeBytes.Length == 7);
+                MemoryMarshal.TryRead(SchemeBytes.Slice(1), out int schemeAsInt);
+                MemoryMarshal.TryRead(SchemeBytes.Slice(1 + sizeof(int)), out ushort schemeRemainderAsShort);
+
+                if (nameAsInt == schemeAsInt && nameRemainderAsShort == schemeRemainderAsShort)
                 {
-                    headerField = PseudoHeaderFields.Unknown;
+                    headerField = PseudoHeaderFields.Scheme;
+                    return true;
+                }
+
+                Debug.Assert(StatusBytes.Length == 7);
+                MemoryMarshal.TryRead(StatusBytes.Slice(1), out int statusAsInt);
+                MemoryMarshal.TryRead(StatusBytes.Slice(1 + sizeof(int)), out ushort statusRemainderAsShort);
+
+                if (nameAsInt == statusAsInt && nameRemainderAsShort == statusRemainderAsShort)
+                {
+                    headerField = PseudoHeaderFields.Status;
+                    return true;
                 }
             }
 
