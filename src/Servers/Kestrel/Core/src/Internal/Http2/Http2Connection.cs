@@ -95,7 +95,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 _outputFlowControl,
                 context.TimeoutControl,
                 httpLimits.MinResponseDataRate,
-                context.ConnectionId,
                 context.MemoryPool,
                 context.ServiceContext);
 
@@ -135,7 +134,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             _inputTask = ReadInputAsync();
         }
 
-        public string ConnectionId => _context.ConnectionId;
+        public string ConnectionId => _context.ConnectionContext.ConnectionId;
 
         public PipeReader Input => _input.Reader;
 
@@ -168,7 +167,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         public void HandleRequestHeadersTimeout()
         {
-            Log.ConnectionBadRequest(ConnectionId, KestrelBadHttpRequestException.GetException(RequestRejectionReason.RequestHeadersTimeout));
+            Log.ConnectionBadRequest(_context.ConnectionContext, KestrelBadHttpRequestException.GetException(RequestRejectionReason.RequestHeadersTimeout));
             Abort(new ConnectionAbortedException(CoreStrings.BadRequest_RequestHeadersTimeout));
         }
 
@@ -176,7 +175,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         {
             Debug.Assert(Limits.MinRequestBodyDataRate != null);
 
-            Log.RequestBodyMinimumDataRateNotSatisfied(ConnectionId, null, Limits.MinRequestBodyDataRate.BytesPerSecond);
+            Log.RequestBodyMinimumDataRateNotSatisfied(_context.ConnectionContext, null, Limits.MinRequestBodyDataRate.BytesPerSecond);
             Abort(new ConnectionAbortedException(CoreStrings.BadRequest_RequestBodyTimeout));
         }
 
@@ -240,7 +239,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                         while (Http2FrameReader.TryReadFrame(ref buffer, _incomingFrame, _serverSettings.MaxFrameSize, out var framePayload))
                         {
                             frameReceived = true;
-                            Log.Http2FrameReceived(ConnectionId, _incomingFrame);
+                            Log.Http2FrameReceived(_context.ConnectionContext, _incomingFrame);
 
                             try
                             {
@@ -248,7 +247,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                             }
                             catch (Http2StreamErrorException ex)
                             {
-                                Log.Http2StreamError(ConnectionId, ex);
+                                Log.Http2StreamError(_context.ConnectionContext, ex);
                                 // The client doesn't know this error is coming, allow draining additional frames for now.
                                 AbortStream(_incomingFrame.StreamId, new IOException(ex.Message, ex));
 
@@ -296,24 +295,24 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 // Don't log ECONNRESET errors when there are no active streams on the connection. Browsers like IE will reset connections regularly.
                 if (_clientActiveStreamCount > 0)
                 {
-                    Log.RequestProcessingError(ConnectionId, ex);
+                    Log.RequestProcessingError(_context.ConnectionContext, ex);
                 }
 
                 error = ex;
             }
             catch (IOException ex)
             {
-                Log.RequestProcessingError(ConnectionId, ex);
+                Log.RequestProcessingError(_context.ConnectionContext, ex);
                 error = ex;
             }
             catch (ConnectionAbortedException ex)
             {
-                Log.RequestProcessingError(ConnectionId, ex);
+                Log.RequestProcessingError(_context.ConnectionContext, ex);
                 error = ex;
             }
             catch (Http2ConnectionErrorException ex)
             {
-                Log.Http2ConnectionError(ConnectionId, ex);
+                Log.Http2ConnectionError(_context.ConnectionContext, ex);
                 error = ex;
                 errorCode = ex.ErrorCode;
             }
@@ -321,7 +320,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             {
                 Debug.Assert(_currentHeadersStream != null);
 
-                Log.HPackDecodingError(ConnectionId, _currentHeadersStream.StreamId, ex);
+                Log.HPackDecodingError(_context.ConnectionContext, _currentHeadersStream.StreamId, ex);
                 error = ex;
                 errorCode = Http2ErrorCode.COMPRESSION_ERROR;
             }
@@ -648,7 +647,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         private Http2StreamContext CreateHttp2StreamContext()
         {
             var streamContext = new Http2StreamContext(
-                ConnectionId,
                 protocols: default,
                 _context.ServiceContext,
                 _context.ConnectionFeatures,
@@ -1033,7 +1031,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 {
                     // Provide feedback in server logs that the client hit the number of maximum concurrent streams,
                     // and that the client is likely waiting for existing streams to be completed before it can continue.
-                    Log.Http2MaxConcurrentStreamsReached(_context.ConnectionId);
+                    Log.Http2MaxConcurrentStreamsReached(_context);
                 }
                 else if (_clientActiveStreamCount > _serverSettings.MaxConcurrentStreams)
                 {
@@ -1210,7 +1208,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             {
                 _gracefulCloseStarted = true;
 
-                Log.Http2ConnectionClosing(_context.ConnectionId);
+                Log.Http2ConnectionClosing(_context);
 
                 if (_gracefulCloseInitiator == GracefulCloseInitiator.Server && _clientActiveStreamCount > 0)
                 {
@@ -1484,7 +1482,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         {
             if (Interlocked.Exchange(ref _isClosed, 1) == 0)
             {
-                Log.Http2ConnectionClosed(_context.ConnectionId, _highestOpenedStreamId);
+                Log.Http2ConnectionClosed(_context, _highestOpenedStreamId);
                 return true;
             }
 

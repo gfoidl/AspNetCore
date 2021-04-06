@@ -33,7 +33,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
         private readonly ConnectionContext _connectionContext;
         private readonly Http2Connection _http2Connection;
         private readonly OutputFlowControl _connectionOutputFlowControl;
-        private readonly string _connectionId;
         private readonly IKestrelTrace _log;
         private readonly ITimeoutControl _timeoutControl;
         private readonly MinDataRate? _minResponseDataRate;
@@ -54,7 +53,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             OutputFlowControl connectionOutputFlowControl,
             ITimeoutControl timeoutControl,
             MinDataRate? minResponseDataRate,
-            string connectionId,
             MemoryPool<byte> memoryPool,
             ServiceContext serviceContext)
         {
@@ -63,7 +61,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
             _connectionContext = connectionContext;
             _http2Connection = http2Connection;
             _connectionOutputFlowControl = connectionOutputFlowControl;
-            _connectionId = connectionId;
             _log = serviceContext.Log;
             _timeoutControl = timeoutControl;
             _minResponseDataRate = minResponseDataRate;
@@ -191,7 +188,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 }
                 catch (HPackEncodingException hex)
                 {
-                    _log.HPackEncodingError(_connectionId, streamId, hex);
+                    _log.HPackEncodingError(_connectionContext, streamId, hex);
                     _http2Connection.Abort(new ConnectionAbortedException(hex.Message, hex));
                     throw new InvalidOperationException(hex.Message, hex); // Report the error to the user if this was the first write.
                 }
@@ -217,7 +214,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 }
                 catch (HPackEncodingException hex)
                 {
-                    _log.HPackEncodingError(_connectionId, streamId, hex);
+                    _log.HPackEncodingError(_connectionContext, streamId, hex);
                     _http2Connection.Abort(new ConnectionAbortedException(hex.Message, hex));
                 }
 
@@ -666,7 +663,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
 
         private void WriteHeaderUnsynchronized()
         {
-            _log.Http2FrameSending(_connectionId, _outgoingFrame);
+            _log.Http2FrameSending(_connectionContext, _outgoingFrame);
             WriteHeader(_outgoingFrame, _outputWriter);
 
             // We assume the payload will be written prior to the next flush.

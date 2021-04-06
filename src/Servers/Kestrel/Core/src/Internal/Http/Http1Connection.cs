@@ -52,7 +52,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
             _http1Output = new Http1OutputProducer(
                 _context.Transport.Output,
-                _context.ConnectionId,
                 _context.ConnectionContext,
                 _context.MemoryPool,
                 _context.ServiceContext.Log,
@@ -108,7 +107,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         protected override void ApplicationAbort()
         {
-            Log.ApplicationAbortedConnection(ConnectionId, TraceIdentifier);
+            Log.ApplicationAbortedConnection(this);
             Abort(new ConnectionAbortedException(CoreStrings.ConnectionAbortedByApplication));
         }
 
@@ -136,7 +135,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         {
             Debug.Assert(MinRequestBodyDataRate != null);
 
-            Log.RequestBodyMinimumDataRateNotSatisfied(ConnectionId, TraceIdentifier, MinRequestBodyDataRate.BytesPerSecond);
+            Log.RequestBodyMinimumDataRateNotSatisfied(_context.ConnectionContext, this, MinRequestBodyDataRate.BytesPerSecond);
             SendTimeoutResponse();
         }
 

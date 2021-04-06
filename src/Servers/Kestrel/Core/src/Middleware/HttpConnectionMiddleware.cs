@@ -27,7 +27,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             var memoryPoolFeature = connectionContext.Features.Get<IMemoryPoolFeature>();
 
             var httpConnectionContext = new HttpConnectionContext(
-                connectionContext.ConnectionId,
                 connectionContext.Features.Get<HttpProtocolsFeature>()?.HttpProtocols ?? _endpointDefaultProtocols,
                 connectionContext,
                 _serviceContext,

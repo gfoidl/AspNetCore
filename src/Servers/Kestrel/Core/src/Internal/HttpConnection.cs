@@ -257,7 +257,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
                     _requestProcessor!.HandleReadDataRateTimeout();
                     break;
                 case TimeoutReason.WriteDataRate:
-                    Log.ResponseMinimumDataRateNotSatisfied(_context.ConnectionId, _http1Connection?.TraceIdentifier);
+                    Log.ResponseMinimumDataRateNotSatisfied(_context, _http1Connection?.TraceIdentifier);
                     Abort(new ConnectionAbortedException(CoreStrings.ConnectionTimedBecauseResponseMininumDataRateNotSatisfied));
                     break;
                 case TimeoutReason.RequestBodyDrain:

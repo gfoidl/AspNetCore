@@ -60,7 +60,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
 
                         _transportConnectionManager.AddConnection(id, kestrelConnection);
 
-                        Log.ConnectionAccepted(connection.ConnectionId);
+                        Log.ConnectionAccepted(connection);
                         KestrelEventSource.Log.ConnectionQueuedStart(connection);
 
                         ThreadPool.UnsafeQueueUserWorkItem(kestrelConnection, preferLocal: false);

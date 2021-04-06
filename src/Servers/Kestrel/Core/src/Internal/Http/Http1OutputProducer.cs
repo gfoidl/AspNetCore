@@ -31,7 +31,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         private const int MaxBeginChunkLength = 10;
         private const int EndChunkLength = 2;
 
-        private readonly string _connectionId;
         private readonly ConnectionContext _connectionContext;
         private readonly MemoryPool<byte> _memoryPool;
         private readonly IKestrelTrace _log;
@@ -74,7 +73,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         public Http1OutputProducer(
             PipeWriter pipeWriter,
-            string connectionId,
             ConnectionContext connectionContext,
             MemoryPool<byte> memoryPool,
             IKestrelTrace log,
@@ -84,7 +82,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         {
             // Allow appending more data to the PipeWriter when a flush is pending.
             _pipeWriter = new ConcurrentPipeWriter(pipeWriter, memoryPool, _contextLock);
-            _connectionId = connectionId;
             _connectionContext = connectionContext;
             _memoryPool = memoryPool;
             _log = log;
@@ -439,7 +436,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         {
             if (!_pipeWriterCompleted)
             {
-                _log.ConnectionDisconnect(_connectionId);
+                _log.ConnectionDisconnect(_connectionContext);
                 _pipeWriterCompleted = true;
             }
         }

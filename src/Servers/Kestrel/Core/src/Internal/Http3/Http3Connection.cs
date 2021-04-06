@@ -78,7 +78,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3
         public Http3ControlStream? ControlStream { get; set; }
         public Http3ControlStream? EncoderStream { get; set; }
         public Http3ControlStream? DecoderStream { get; set; }
-        public string ConnectionId => _context.ConnectionId;
 
         public async Task ProcessStreamsAsync<TContext>(IHttpApplication<TContext> httpApplication) where TContext : notnull
         {
@@ -159,7 +158,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3
         {
             if (Interlocked.Exchange(ref _isClosed, 1) == 0)
             {
-                Log.Http3ConnectionClosed(_context.ConnectionId, _highestOpenedStreamId);
+                Log.Http3ConnectionClosed(_context, _highestOpenedStreamId);
                 return true;
             }
 
@@ -315,7 +314,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3
                 {
                     if (_activeRequestCount > 0)
                     {
-                        Log.RequestProcessingError(_context.ConnectionId, ex);
+                        Log.RequestProcessingError(_context, ex);
                     }
                 }
                 error = ex;

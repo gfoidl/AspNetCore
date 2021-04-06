@@ -13,7 +13,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
     internal class Http3ConnectionContext
     {
         public Http3ConnectionContext(
-            string connectionId,
             MultiplexedConnectionContext connectionContext,
             ServiceContext serviceContext,
             IFeatureCollection connectionFeatures,
@@ -21,7 +20,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             IPEndPoint? localEndPoint,
             IPEndPoint? remoteEndPoint)
         {
-            ConnectionId = connectionId;
             ConnectionContext = connectionContext;
             ServiceContext = serviceContext;
             ConnectionFeatures = connectionFeatures;
@@ -30,7 +28,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             RemoteEndPoint = remoteEndPoint;
         }
 
-        public string ConnectionId { get; }
         public MultiplexedConnectionContext ConnectionContext { get; }
         public ServiceContext ServiceContext { get; }
         public IFeatureCollection ConnectionFeatures { get; }

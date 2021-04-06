@@ -5,6 +5,7 @@ using System;
 using System.Net.Http;
 using System.Net.Http.HPack;
 using Microsoft.AspNetCore.Connections;
+using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http3;
 using Microsoft.Extensions.Logging;
@@ -13,31 +14,31 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
 {
     internal interface IKestrelTrace : ILogger
     {
-        void ConnectionAccepted(string connectionId);
+        void ConnectionAccepted(BaseConnectionContext connection);
 
-        void ConnectionStart(string connectionId);
+        void ConnectionStart(BaseConnectionContext connection);
 
-        void ConnectionStop(string connectionId);
+        void ConnectionStop(BaseConnectionContext connection);
 
-        void ConnectionPause(string connectionId);
+        void ConnectionPause(BaseConnectionContext connection);
 
-        void ConnectionResume(string connectionId);
+        void ConnectionResume(BaseConnectionContext connection);
 
-        void ConnectionRejected(string connectionId);
+        void ConnectionRejected(BaseConnectionContext connection);
 
-        void ConnectionKeepAlive(string connectionId);
+        void ConnectionKeepAlive(BaseConnectionContext connection);
 
-        void ConnectionDisconnect(string connectionId);
+        void ConnectionDisconnect(BaseConnectionContext connection);
 
-        void RequestProcessingError(string connectionId, Exception ex);
+        void RequestProcessingError(BaseConnectionContext connection, Exception ex);
 
-        void ConnectionHeadResponseBodyWrite(string connectionId, long count);
+        void ConnectionHeadResponseBodyWrite(BaseConnectionContext connection, long count);
 
         void NotAllConnectionsClosedGracefully();
 
-        void ConnectionBadRequest(string connectionId, Microsoft.AspNetCore.Http.BadHttpRequestException ex);
+        void ConnectionBadRequest(BaseConnectionContext connection, AspNetCore.Http.BadHttpRequestException ex);
 
-        void ApplicationError(string connectionId, string traceIdentifier, Exception ex);
+        void ApplicationError(HttpProtocol httpProtocol, Exception ex);
 
         void NotAllConnectionsAborted();
 
@@ -45,52 +46,52 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
 
         void ApplicationNeverCompleted(string connectionId);
 
-        void RequestBodyStart(string connectionId, string traceIdentifier);
+        void RequestBodyStart(BaseConnectionContext connection, string traceIdentifier);
 
-        void RequestBodyDone(string connectionId, string traceIdentifier);
+        void RequestBodyDone(BaseConnectionContext connection, string traceIdentifier);
 
-        void RequestBodyNotEntirelyRead(string connectionId, string traceIdentifier);
+        void RequestBodyNotEntirelyRead(HttpProtocol httpProtocol);
 
-        void RequestBodyDrainTimedOut(string connectionId, string traceIdentifier);
+        void RequestBodyDrainTimedOut(HttpProtocol httpProtocol);
 
-        void RequestBodyMinimumDataRateNotSatisfied(string connectionId, string? traceIdentifier, double rate);
+        void RequestBodyMinimumDataRateNotSatisfied(BaseConnectionContext connection, HttpProtocol? httpProtocol, double rate);
 
-        void ResponseMinimumDataRateNotSatisfied(string connectionId, string? traceIdentifier);
+        void ResponseMinimumDataRateNotSatisfied(BaseConnectionContext connection, string? traceIdentifier);
 
-        void ApplicationAbortedConnection(string connectionId, string traceIdentifier);
+        void ApplicationAbortedConnection(HttpProtocol httpProtocol);
 
-        void Http2ConnectionError(string connectionId, Http2ConnectionErrorException ex);
+        void Http2ConnectionError(BaseConnectionContext connection, Http2ConnectionErrorException ex);
 
-        void Http2ConnectionClosing(string connectionId);
+        void Http2ConnectionClosing(BaseConnectionContext connection);
 
-        void Http2ConnectionClosed(string connectionId, int highestOpenedStreamId);
+        void Http2ConnectionClosed(BaseConnectionContext connection, int highestOpenedStreamId);
 
-        void Http2StreamError(string connectionId, Http2StreamErrorException ex);
+        void Http2StreamError(BaseConnectionContext connection, Http2StreamErrorException ex);
 
         void Http2StreamResetAbort(string traceIdentifier, Http2ErrorCode error, ConnectionAbortedException abortReason);
 
-        void HPackDecodingError(string connectionId, int streamId, HPackDecodingException ex);
+        void HPackDecodingError(BaseConnectionContext connection, int streamId, HPackDecodingException ex);
 
-        void HPackEncodingError(string connectionId, int streamId, HPackEncodingException ex);
+        void HPackEncodingError(BaseConnectionContext connection, int streamId, HPackEncodingException ex);
 
-        void Http2FrameReceived(string connectionId, Http2Frame frame);
+        void Http2FrameReceived(BaseConnectionContext connection, Http2Frame frame);
 
-        void Http2FrameSending(string connectionId, Http2Frame frame);
+        void Http2FrameSending(BaseConnectionContext connection, Http2Frame frame);
 
-        void Http2MaxConcurrentStreamsReached(string connectionId);
+        void Http2MaxConcurrentStreamsReached(BaseConnectionContext connection);
 
         void InvalidResponseHeaderRemoved();
 
-        void Http3ConnectionError(string connectionId, Http3ConnectionErrorException ex);
+        void Http3ConnectionError(BaseConnectionContext connection, Http3ConnectionErrorException ex);
 
-        void Http3ConnectionClosing(string connectionId);
+        void Http3ConnectionClosing(BaseConnectionContext connection);
 
-        void Http3ConnectionClosed(string connectionId, long highestOpenedStreamId);
+        void Http3ConnectionClosed(BaseConnectionContext connection, long highestOpenedStreamId);
 
         void Http3StreamAbort(string traceIdentifier, Http3ErrorCode error, ConnectionAbortedException abortReason);
 
-        void Http3FrameReceived(string connectionId, long streamId, Http3RawFrame frame);
+        void Http3FrameReceived(BaseConnectionContext connection, long streamId, Http3RawFrame frame);
 
-        void Http3FrameSending(string connectionId, long streamId, Http3RawFrame frame);
+        void Http3FrameSending(BaseConnectionContext connection, long streamId, Http3RawFrame frame);
     }
 }

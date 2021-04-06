@@ -105,9 +105,8 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         private DateHeaderValueManager DateHeaderValueManager => ServiceContext.DateHeaderValueManager;
         // Hold direct reference to ServerOptions since this is used very often in the request processing path
         protected KestrelServerOptions ServerOptions { get; set; } = default!;
-        protected string ConnectionId => _context.ConnectionId;
 
-        public string ConnectionIdFeature { get; set; } = default!;
+        public string ConnectionIdFeature => _context.ConnectionContext.ConnectionId;
         public bool HasStartedConsumingRequestBody { get; set; }
         public long? MaxRequestBodySize { get; set; }
         public MinDataRate? MinRequestBodyDataRate { get; set; }
@@ -118,16 +117,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
         /// </summary>
         public string TraceIdentifier
         {
-            set => _requestId = value;
             get
             {
                 // don't generate an ID until it is requested
-                if (_requestId == null)
-                {
-                    _requestId = CreateRequestId();
-                }
-                return _requestId;
+                return _requestId ??= CreateRequestId();
             }
+            set => _requestId = value;
         }
 
         public bool IsUpgradableRequest { get; private set; }
@@ -368,8 +363,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             LocalIpAddress = localEndPoint?.Address;
             LocalPort = localEndPoint?.Port ?? 0;
 
-            ConnectionIdFeature = ConnectionId;
-
             HttpRequestHeaders.Reset();
             HttpRequestHeaders.EncodingSelector = ServerOptions.RequestHeaderEncodingSelector;
             HttpRequestHeaders.ReuseHeaderValues = !ServerOptions.DisableStringReuse;
@@ -471,7 +464,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             }
             catch (Exception ex)
             {
-                Log.ApplicationError(ConnectionId, TraceIdentifier, ex);
+                Log.ApplicationError(this, ex);
             }
         }
 
@@ -578,16 +571,16 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 // Don't log ECONNRESET errors made between requests. Browsers like IE will reset connections regularly.
                 if (_requestProcessingStatus != RequestProcessingStatus.RequestPending)
                 {
-                    Log.RequestProcessingError(ConnectionId, ex);
+                    Log.RequestProcessingError(_context.ConnectionContext, ex);
                 }
             }
             catch (IOException ex)
             {
-                Log.RequestProcessingError(ConnectionId, ex);
+                Log.RequestProcessingError(_context.ConnectionContext, ex);
             }
             catch (ConnectionAbortedException ex)
             {
-                Log.RequestProcessingError(ConnectionId, ex);
+                Log.RequestProcessingError(_context.ConnectionContext, ex);
             }
             catch (Exception ex)
             {
@@ -829,7 +822,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                     }
                     catch (Exception ex)
                     {
-                        protocol.Log.ApplicationError(protocol.ConnectionId, protocol.TraceIdentifier, ex);
+                        protocol.Log.ApplicationError(protocol, ex);
                     }
                 }
             }
@@ -1067,12 +1060,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
             if (_keepAlive)
             {
-                Log.ConnectionKeepAlive(ConnectionId);
+                Log.ConnectionKeepAlive(_context.ConnectionContext);
             }
 
             if (Method == HttpMethod.Head && _responseBytesWritten > 0)
             {
-                Log.ConnectionHeadResponseBodyWrite(ConnectionId, _responseBytesWritten);
+                Log.ConnectionHeadResponseBodyWrite(_context.ConnectionContext, _responseBytesWritten);
             }
 
             return Task.CompletedTask;
@@ -1088,12 +1081,12 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
             if (_keepAlive)
             {
-                Log.ConnectionKeepAlive(ConnectionId);
+                Log.ConnectionKeepAlive(_context.ConnectionContext);
             }
 
             if (Method == HttpMethod.Head && _responseBytesWritten > 0)
             {
-                Log.ConnectionHeadResponseBodyWrite(ConnectionId, _responseBytesWritten);
+                Log.ConnectionHeadResponseBodyWrite(_context.ConnectionContext, _responseBytesWritten);
             }
         }
 
@@ -1339,7 +1332,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         public void SetBadRequestState(BadHttpRequestException ex)
         {
-            Log.ConnectionBadRequest(ConnectionId, ex);
+            Log.ConnectionBadRequest(_context.ConnectionContext, ex);
 
             if (!HasResponseStarted)
             {
@@ -1371,7 +1364,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
                 _applicationException = new AggregateException(_applicationException, ex);
             }
 
-            Log.ApplicationError(ConnectionId, TraceIdentifier, ex);
+            Log.ApplicationError(this, ex);
         }
 
         public void Advance(int bytes)

@@ -82,7 +82,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
 
         protected async Task OnConsumeAsyncAwaited()
         {
-            Log.RequestBodyNotEntirelyRead(_context.ConnectionIdFeature, _context.TraceIdentifier);
+            Log.RequestBodyNotEntirelyRead(_context);
 
             _context.TimeoutControl.SetTimeout(Constants.RequestBodyDrainTimeout.Ticks, TimeoutReason.RequestBodyDrain);
 
@@ -101,7 +101,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http
             }
             catch (OperationCanceledException ex) when (ex is ConnectionAbortedException || ex is TaskCanceledException)
             {
-                Log.RequestBodyDrainTimedOut(_context.ConnectionIdFeature, _context.TraceIdentifier);
+                Log.RequestBodyDrainTimedOut(_context);
             }
             catch (InvalidOperationException ex)
             {

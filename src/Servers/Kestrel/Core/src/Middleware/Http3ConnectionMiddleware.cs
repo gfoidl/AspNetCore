@@ -3,7 +3,6 @@
 
 using System.Net;
 using System.Threading.Tasks;
-using Microsoft.AspNetCore.Connections;
 using Microsoft.AspNetCore.Connections.Experimental;
 using Microsoft.AspNetCore.Connections.Features;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -27,7 +26,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             var memoryPoolFeature = connectionContext.Features.Get<IMemoryPoolFeature>();
 
             var http3ConnectionContext = new Http3ConnectionContext(
-                connectionContext.ConnectionId,
                 connectionContext,
                 _serviceContext,
                 connectionContext.Features,

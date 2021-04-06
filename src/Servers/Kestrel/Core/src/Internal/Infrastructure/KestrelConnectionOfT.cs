@@ -41,8 +41,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
             try
             {
                 KestrelEventSource.Log.ConnectionQueuedStop(connectionContext);
-
-                Logger.ConnectionStart(connectionContext.ConnectionId);
+                Logger.ConnectionStart(connectionContext);
                 KestrelEventSource.Log.ConnectionStart(connectionContext);
 
                 using (BeginConnectionScope(connectionContext))
@@ -61,7 +60,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Infrastructure
             {
                 await FireOnCompletedAsync();
 
-                Logger.ConnectionStop(connectionContext.ConnectionId);
+                Logger.ConnectionStop(connectionContext);
                 KestrelEventSource.Log.ConnectionStop(connectionContext);
 
                 // Dispose the transport connection, this needs to happen before removing it from the

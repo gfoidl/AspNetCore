@@ -33,7 +33,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             if (!_concurrentConnectionCounter.TryLockOne())
             {
                 KestrelEventSource.Log.ConnectionRejected(connection.ConnectionId);
-                _trace.ConnectionRejected(connection.ConnectionId);
+                _trace.ConnectionRejected(connection);
                 await connection.DisposeAsync();
                 return;
             }

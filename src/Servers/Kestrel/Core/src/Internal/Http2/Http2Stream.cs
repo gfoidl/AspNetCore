@@ -136,7 +136,7 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal.Http2
                 {
                     if (!errored)
                     {
-                        Log.RequestBodyNotEntirelyRead(ConnectionIdFeature, TraceIdentifier);
+                        Log.RequestBodyNotEntirelyRead(this);
                     }
 
                     var (oldState, newState) = ApplyCompletionFlag(StreamCompletionFlags.Aborted);

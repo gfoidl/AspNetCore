@@ -14,7 +14,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
     internal class HttpConnectionContext
     {
         public HttpConnectionContext(
-            string connectionId,
             HttpProtocols protocols,
             ConnectionContext connectionContext,
             ServiceContext serviceContext,
@@ -24,7 +23,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             IPEndPoint? remoteEndPoint,
             IDuplexPipe transport)
         {
-            ConnectionId = connectionId;
             Protocols = protocols;
             ConnectionContext = connectionContext;
             ServiceContext = serviceContext;
@@ -35,7 +33,6 @@ namespace Microsoft.AspNetCore.Server.Kestrel.Core.Internal
             Transport = transport;
         }
 
-        public string ConnectionId { get; }
         public HttpProtocols Protocols { get; }
         public ConnectionContext ConnectionContext { get; }
         public ServiceContext ServiceContext { get; }
