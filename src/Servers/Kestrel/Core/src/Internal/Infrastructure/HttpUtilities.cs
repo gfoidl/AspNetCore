@@ -3,6 +3,7 @@
 
 using System.Buffers;
 using System.Buffers.Binary;
+using System.Buffers.Text;
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
@@ -27,7 +28,7 @@ internal static partial class HttpUtilities
     private const ulong _http10VersionLong = 3471766442030158920; // GetAsciiStringAsLong("HTTP/1.0"); const results in better codegen
     private const ulong _http11VersionLong = 3543824036068086856; // GetAsciiStringAsLong("HTTP/1.1"); const results in better codegen
 
-    private static readonly UTF8Encoding DefaultRequestHeaderEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
+    private static readonly UTF8Encoding DefaultRequestHeaderEncoding = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
     private static readonly SpanAction<char, IntPtr> s_getHeaderName = GetHeaderName;
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -91,14 +92,19 @@ internal static partial class HttpUtilities
 
     private static unsafe void GetHeaderName(Span<char> buffer, IntPtr state)
     {
-        fixed (char* output = &MemoryMarshal.GetReference(buffer))
+        ReadOnlySpan<byte> source = new(state.ToPointer(), buffer.Length);
+
+        // TODO: this check should be done in Ascii.ToUtf16 as extra mode.
+        if (source.IndexOf((byte)0) >= 0)
         {
-            // This version of AsciiUtilities returns null if there are any null (0 byte) characters
-            // in the string
-            if (!StringUtilities.TryGetAsciiString((byte*)state.ToPointer(), output, buffer.Length))
-            {
-                KestrelBadHttpRequestException.Throw(RequestRejectionReason.InvalidCharactersInHeaderName);
-            }
+            KestrelBadHttpRequestException.Throw(RequestRejectionReason.InvalidCharactersInHeaderName);
+        }
+
+        OperationStatus status = Ascii.ToUtf16(source, buffer, out _, out _);
+
+        if (status != OperationStatus.Done)
+        {
+            KestrelBadHttpRequestException.Throw(RequestRejectionReason.InvalidCharactersInHeaderName);
         }
     }
 
@@ -121,7 +127,7 @@ internal static partial class HttpUtilities
         }
 
         // New Line characters (CR, LF) are considered invalid at this point.
-        if (checkForNewlineChars && ((ReadOnlySpan<char>)result).IndexOfAny('\r', '\n') >= 0)
+        if (checkForNewlineChars && result.AsSpan().IndexOfAny('\r', '\n') >= 0)
         {
             throw new InvalidOperationException("Newline characters (CR/LF) are not allowed in request headers.");
         }
@@ -521,7 +527,7 @@ internal static partial class HttpUtilities
                 return true;
             }
 
-            if (!IsHex(ch) && ch != ':' && ch != '.')
+            if (!char.IsAsciiHexDigit(ch) && ch != ':' && ch != '.')
             {
                 return false;
             }
@@ -543,39 +549,13 @@ internal static partial class HttpUtilities
 
         for (var i = offset; i < hostText.Length; i++)
         {
-            if (!IsNumeric(hostText[i]))
+            if (!char.IsAsciiDigit(hostText[i]))
             {
                 return false;
             }
         }
 
         return true;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsNumeric(char ch)
-    {
-        // '0' <= ch && ch <= '9'
-        // (uint)(ch - '0') <= (uint)('9' - '0')
-
-        // Subtract start of range '0'
-        // Cast to uint to change negative numbers to large numbers
-        // Check if less than 10 representing chars '0' - '9'
-        return (uint)(ch - '0') < 10u;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool IsHex(char ch)
-    {
-        return IsNumeric(ch)
-            // || ('a' <= ch && ch <= 'f')
-            // || ('A' <= ch && ch <= 'F');
-
-            // Lowercase indiscriminately (or with 32)
-            // Subtract start of range 'a'
-            // Cast to uint to change negative numbers to large numbers
-            // Check if less than 6 representing chars 'a' - 'f'
-            || (uint)((ch | 32) - 'a') < 6u;
     }
 
     public static AltSvcHeader? GetEndpointAltSvc(System.Net.IPEndPoint endpoint, HttpProtocols protocols)
@@ -589,8 +569,8 @@ internal static partial class HttpUtilities
             // This is the default cache if none is specified with Alt-Svc, but it appears that all
             // popular HTTP/3 websites explicitly specifies a cache duration in the header.
             // Specify a value to be consistent.
-            var text = "h3=\":" + endpoint.Port.ToString(CultureInfo.InvariantCulture) + "\"; ma=86400";
-            var bytes = Encoding.ASCII.GetBytes($"\r\nAlt-Svc: " + text);
+            var text = string.Create(CultureInfo.InvariantCulture, stackalloc char[128], $"h3=\":{endpoint.Port}\"; ma=86400");
+            var bytes = Encoding.ASCII.GetBytes("\r\nAlt-Svc: " + text);
             return new AltSvcHeader(text, bytes);
         }
 

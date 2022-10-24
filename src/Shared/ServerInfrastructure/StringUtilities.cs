@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Buffers;
+using System.Buffers.Text;
 using System.Diagnostics;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
@@ -36,7 +36,7 @@ internal static class StringUtilities
             if (resultString[0] == '\0')
             {
                 // null characters are considered invalid
-                if (span.IndexOf((byte)0) != -1)
+                if (span.IndexOf((byte)0) >= 0)
                 {
                     throw new InvalidOperationException();
                 }
@@ -57,15 +57,20 @@ internal static class StringUtilities
 
     private static unsafe void GetAsciiStringNonNullCharactersWithMarker(Span<char> buffer, IntPtr state)
     {
-        fixed (char* output = &MemoryMarshal.GetReference(buffer))
+        ReadOnlySpan<byte> source = new(state.ToPointer(), buffer.Length);
+
+        // TODO: this check should be done in Ascii.ToUtf16 as extra mode.
+        if (source.IndexOf((byte)0) >= 0)
         {
-            // This version of AsciiUtilities returns false if there are any null ('\0') or non-Ascii
-            // character (> 127) in the string.
-            if (!TryGetAsciiString((byte*)state.ToPointer(), output, buffer.Length))
-            {
-                // Mark resultString for UTF-8 encoding
-                output[0] = '\0';
-            }
+            buffer[0] = '\0';
+            return;
+        }
+
+        OperationStatus status = Ascii.ToUtf16(source, buffer, out _, out _);
+
+        if (status != OperationStatus.Done)
+        {
+            buffer[0] = '\0';
         }
     }
 
@@ -84,14 +89,19 @@ internal static class StringUtilities
 
     private static unsafe void GetAsciiStringNonNullCharacters(Span<char> buffer, IntPtr state)
     {
-        fixed (char* output = &MemoryMarshal.GetReference(buffer))
+        ReadOnlySpan<byte> source = new(state.ToPointer(), buffer.Length);
+
+        // TODO: this check should be done in Ascii.ToUtf16 as extra mode.
+        if (source.IndexOf((byte)0) >= 0)
         {
-            // This version of AsciiUtilities returns false if there are any null ('\0') or non-Ascii
-            // character (> 127) in the string.
-            if (!TryGetAsciiString((byte*)state.ToPointer(), output, buffer.Length))
-            {
-                throw new InvalidOperationException();
-            }
+            throw new InvalidOperationException();
+        }
+
+        OperationStatus status = Ascii.ToUtf16(source, buffer, out _, out _);
+
+        if (status != OperationStatus.Done)
+        {
+            throw new InvalidOperationException();
         }
     }
 
@@ -110,201 +120,20 @@ internal static class StringUtilities
 
     private static unsafe void GetLatin1StringNonNullCharacters(Span<char> buffer, IntPtr state)
     {
-        fixed (char* output = &MemoryMarshal.GetReference(buffer))
+        ReadOnlySpan<byte> source = new(state.ToPointer(), buffer.Length);
+
+        // TODO: this check should be done in Latin1.ToUtf16 as extra mode.
+        if (source.IndexOf((byte)0) >= 0)
         {
-            // null ('\0') characters are considered invalid
-            if (!TryGetLatin1String((byte*)state.ToPointer(), output, buffer.Length))
-            {
-                throw new InvalidOperationException();
-            }
-        }
-    }
-
-    public static unsafe bool TryGetAsciiString(byte* input, char* output, int count)
-        => TryGetStringCore<BytesInAsciiRangeCheck>(input, output, count);
-
-    public static unsafe bool TryGetLatin1String(byte* input, char* output, int count)
-        => TryGetStringCore<BytesNotNullCheck>(input, output, count);
-
-    private static unsafe bool TryGetStringCore<TByteCheck>(byte* input, char* output, int count) where TByteCheck : IBytesCheck
-    {
-        Debug.Assert(input != null);
-        Debug.Assert(output != null);
-
-        var end = input + count;
-
-        Debug.Assert((long)end >= Vector256<byte>.Count, "Address of input is below the expected address-range for vectorization.");
-
-        // Use byte/ushort instead of signed equivalents to ensure it doesn't fill based on the high bit.
-
-        // If vectorization isn't possible do scalar-processing in order to don't penalize short inputs.
-        if (!Vector128.IsHardwareAccelerated || input > end - Vector128<byte>.Count)
-        {
-            if (Environment.Is64BitProcess) // Use Intrinsic switch for branch elimination
-            {
-                // 64-bit: Loop longs by default
-                while (input <= end - sizeof(long))
-                {
-                    var value = *(long*)input;
-                    if (!TByteCheck.CheckBytes(value))
-                    {
-                        return false;
-                    }
-
-                    // BMI2 could be used, but this variant is faster on both Intel and AMD.
-                    if (Vector128.IsHardwareAccelerated)
-                    {
-                        var vecNarrow = Vector128.CreateScalarUnsafe(value).AsByte();
-                        var vecWide = Vector128.Widen(vecNarrow).Lower.AsUInt64();
-                        vecWide.Store((ulong*)output);
-                    }
-                    else
-                    {
-                        output[0] = (char)input[0];
-                        output[1] = (char)input[1];
-                        output[2] = (char)input[2];
-                        output[3] = (char)input[3];
-                        output[4] = (char)input[4];
-                        output[5] = (char)input[5];
-                        output[6] = (char)input[6];
-                        output[7] = (char)input[7];
-                    }
-
-                    input += sizeof(long);
-                    output += sizeof(long);
-                }
-
-                if (input <= end - sizeof(int))
-                {
-                    var value = *(int*)input;
-                    if (!TByteCheck.CheckBytes(value))
-                    {
-                        return false;
-                    }
-
-                    WidenFourAsciiBytesToUtf16AndWriteToBuffer(output, input, value);
-
-                    input += sizeof(int);
-                    output += sizeof(int);
-                }
-            }
-            else
-            {
-                // 32-bit: Loop ints by default
-                while (input <= end - sizeof(int))
-                {
-                    var value = *(int*)input;
-                    if (!TByteCheck.CheckBytes(value))
-                    {
-                        return false;
-                    }
-
-                    WidenFourAsciiBytesToUtf16AndWriteToBuffer(output, input, value);
-
-                    input += sizeof(int);
-                    output += sizeof(int);
-                }
-            }
-
-            if (input <= end - sizeof(short))
-            {
-                if (!TByteCheck.CheckBytes(((short*)input)[0]))
-                {
-                    return false;
-                }
-
-                output[0] = (char)input[0];
-                output[1] = (char)input[1];
-
-                input += sizeof(short);
-                output += sizeof(short);
-            }
-
-            if (input < end)
-            {
-                if (!TByteCheck.CheckBytes(((sbyte*)input)[0]))
-                {
-                    return false;
-                }
-                output[0] = (char)input[0];
-            }
-
-            return true;
+            throw new InvalidOperationException();
         }
 
-        Debug.Assert(input + Vector128<sbyte>.Count <= end);
+        OperationStatus status = Latin1.ToUtf16(source, buffer, out _, out _);
 
-        if (Vector256.IsHardwareAccelerated && input <= end - Vector256<byte>.Count)
+        if (status != OperationStatus.Done)
         {
-            var zero256S = Vector256<sbyte>.Zero;
-
-            do
-            {
-                var vector = Vector256.Load(input);
-                if (!TByteCheck.CheckBytes(vector.AsSByte(), zero256S))
-                {
-                    return false;
-                }
-
-                var (out0, out1) = Vector256.Widen(vector);
-
-                out0.Store((ushort*)output);
-                out1.Store((ushort*)output + Vector256<ushort>.Count);
-
-                input += Vector256<byte>.Count;
-                output += 2 * Vector256<ushort>.Count;
-            } while (input <= end - Vector256<byte>.Count);
-
-            if (input == end)
-            {
-                return true;
-            }
+            throw new InvalidOperationException();
         }
-
-        var zero128S = Vector128<sbyte>.Zero;
-
-        while (input <= end - Vector128<byte>.Count)
-        {
-            var vector = Vector128.Load(input);
-            if (!TByteCheck.CheckBytes(vector.AsSByte(), zero128S))
-            {
-                return false;
-            }
-
-            var (out0, out1) = Vector128.Widen(vector);
-
-            out0.Store((ushort*)output);
-            out1.Store((ushort*)output + Vector128<ushort>.Count);
-
-            input += Vector128<byte>.Count;
-            output += 2 * Vector128<ushort>.Count;
-        }
-
-        if (input != end)
-        {
-            // Here we know that from the end at least Vector128<sbyte>.Count elements exists.
-            // The operation is idempotent, so we can perform one read from the very end instead
-            // of doing the scalar paths below.
-
-            var adjust = Vector128<byte>.Count - (end - input);
-            Debug.Assert(adjust > 0 && adjust < Vector128<byte>.Count);
-
-            input -= adjust;
-            output -= adjust;
-
-            var vector = Vector128.Load(input);
-            if (!TByteCheck.CheckBytes(vector.AsSByte(), zero128S))
-            {
-                return false;
-            }
-
-            var (out0, out1) = Vector128.Widen(vector);
-
-            out0.Store((ushort*)output);
-            out1.Store((ushort*)output + Vector128<ushort>.Count);
-        }
-
-        return true;
     }
 
     public static bool BytesOrdinalEqualsStringAndAscii(string previousValue, ReadOnlySpan<byte> newValue)
@@ -331,310 +160,7 @@ internal static class StringUtilities
             }
         }
 
-        // Ascii bytes => Utf-16 chars will be the same length.
-        // The caller should have already compared lengths before calling this method.
-        // However; let's double check, and early exit if they are not the same length.
-        if (previousValue.Length != newValue.Length)
-        {
-            // Lengths don't match, so there cannot be an exact ascii conversion between the two.
-            return false;
-        }
-
-        var count = (nint)(uint)newValue.Length;
-        var idx = (nint)0;
-
-        // Get references to the first byte in the span, and the first char in the string.
-        ref var bytes = ref MemoryMarshal.GetReference(newValue);
-        ref var str = ref Unsafe.AsRef(in previousValue.GetPinnableReference());
-
-        // If vectorization isn't possible do scalar-processing in order to don't penalize short inputs.
-        if (!Vector128.IsHardwareAccelerated || (idx > count - Vector128<byte>.Count))
-        {
-            if (Environment.Is64BitProcess) // Use Intrinsic switch for branch elimination
-            {
-                // 64-bit: Loop longs by default
-                while (idx <= count - sizeof(long))
-                {
-                    if (!WidenFourAsciiBytesToUtf16AndCompareToChars(
-                            ref Unsafe.Add(ref str, idx),
-                            Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref bytes, idx))) ||
-                        !WidenFourAsciiBytesToUtf16AndCompareToChars(
-                            ref Unsafe.Add(ref str, idx + sizeof(long) / sizeof(char)),
-                            Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref bytes, idx + sizeof(uint)))))
-                    {
-                        return false;
-                    }
-
-                    idx += sizeof(long);
-                }
-
-                if (idx <= count - sizeof(uint))
-                {
-                    if (!WidenFourAsciiBytesToUtf16AndCompareToChars(
-                            ref Unsafe.Add(ref str, idx),
-                            Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref bytes, idx))))
-                    {
-                        return false;
-                    }
-
-                    idx += sizeof(uint);
-                }
-            }
-            else
-            {
-                // 32-bit: Loop ints by default
-                while (idx <= count - sizeof(uint))
-                {
-                    if (!WidenFourAsciiBytesToUtf16AndCompareToChars(
-                            ref Unsafe.Add(ref str, idx),
-                            Unsafe.ReadUnaligned<uint>(ref Unsafe.Add(ref bytes, idx))))
-                    {
-                        return false;
-                    }
-
-                    idx += sizeof(uint);
-                }
-            }
-
-            if (idx <= count - sizeof(ushort))
-            {
-                if (!WidenTwoAsciiBytesToUtf16AndCompareToChars(
-                        ref Unsafe.Add(ref str, idx),
-                        Unsafe.ReadUnaligned<ushort>(ref Unsafe.Add(ref bytes, idx))))
-                {
-                    return false;
-                }
-
-                idx += sizeof(ushort);
-            }
-
-            if (idx < count)
-            {
-                var ch = (char)Unsafe.Add(ref bytes, idx);
-                if (((ch & 0x80) != 0) || Unsafe.Add(ref str, idx) != ch)
-                {
-                    return false;
-                }
-            }
-
-            // End of input reached, there are no inequalities via widening; so the input bytes are both ascii
-            // and a match to the string if it was converted via Encoding.ASCII.GetString(...)
-            return true;
-        }
-
-        Debug.Assert(idx + Vector128<byte>.Count <= count);
-
-        ref ushort strPtr = ref Unsafe.As<char, ushort>(ref str);
-
-        if (Vector256.IsHardwareAccelerated && idx <= count - Vector256<byte>.Count)
-        {
-            var zero256S = Vector256<sbyte>.Zero;
-
-            do
-            {
-                // Read a Vector length from the input as bytes
-                var bytesVector = Vector256.LoadUnsafe(ref bytes, (nuint)idx);
-                if (!BytesInAsciiRangeCheck.CheckBytes(bytesVector.AsSByte(), zero256S))
-                {
-                    return false;
-                }
-
-                // Widen the bytes directly to chars (ushort) as if they were ascii.
-                // As widening doubles the size we get two vectors back.
-                var (vec0, vec1) = Vector256.Widen(bytesVector);
-
-                // If the string is not ascii, then the widened bytes cannot match
-                // as each widened byte element as chars will be in the range 0-255
-                // so cannot match any higher unicode values.
-
-                // Check equality for the two widened vectors
-                var equals0 = Vector256.Equals(vec0, Vector256.LoadUnsafe(ref strPtr, (nuint)idx));
-                var equals1 = Vector256.Equals(vec1, Vector256.LoadUnsafe(ref strPtr, (nuint)(idx + Vector256<ushort>.Count)));
-
-                var equals = equals0 & equals1;
-                var mask = equals.AsByte().ExtractMostSignificantBits();
-
-                if (mask != 0xFFFF_FFFF)
-                {
-                    return false;
-                }
-
-                idx += Vector256<byte>.Count;
-            } while (idx <= count - Vector256<byte>.Count);
-        }
-
-        var zero128S = Vector128<sbyte>.Zero;
-
-        while (idx <= count - Vector128<byte>.Count)
-        {
-            var bytesVector = Vector128.LoadUnsafe(ref bytes, (nuint)idx);
-            if (!BytesInAsciiRangeCheck.CheckBytes(bytesVector.AsSByte(), zero128S))
-            {
-                return false;
-            }
-
-            var (vec0, vec1) = Vector128.Widen(bytesVector);
-
-            var equals0 = Vector128.Equals(vec0, Vector128.LoadUnsafe(ref strPtr, (nuint)idx));
-            var equals1 = Vector128.Equals(vec1, Vector128.LoadUnsafe(ref strPtr, (nuint)(idx + Vector128<ushort>.Count)));
-
-            var equals = equals0 & equals1;
-            var mask = equals.AsByte().ExtractMostSignificantBits();
-
-            if (mask != 0xFFFF)
-            {
-                return false;
-            }
-
-            idx += Vector128<byte>.Count;
-        }
-
-        if (idx != count)
-        {
-            // Here we know that from the end at least Vector128<byte>.Count elements exists.
-            // The operation is idempotent, so we can perform one read from the very end instead
-            // of doing the scalar paths.
-            var adjust = Vector128<byte>.Count - (count - idx);
-            Debug.Assert(adjust > 0 && adjust < Vector128<byte>.Count);
-
-            idx -= adjust;
-
-            Debug.Assert(idx + Vector128<byte>.Count == count);
-
-            var bytesVector = Vector128.LoadUnsafe(ref bytes, (nuint)idx);
-            if (!BytesInAsciiRangeCheck.CheckBytes(bytesVector.AsSByte(), zero128S))
-            {
-                return false;
-            }
-
-            var (vec0, vec1) = Vector128.Widen(bytesVector);
-
-            var equals0 = Vector128.Equals(vec0, Vector128.LoadUnsafe(ref strPtr, (nuint)idx));
-            var equals1 = Vector128.Equals(vec1, Vector128.LoadUnsafe(ref strPtr, (nuint)(idx + Vector128<ushort>.Count)));
-
-            var equals = equals0 & equals1;
-            var mask = equals.AsByte().ExtractMostSignificantBits();
-
-            if (mask != 0xFFFF)
-            {
-                return false;
-            }
-        }
-
-        // End of input reached, there are no inequalities via widening; so the input bytes are both ascii
-        // and a match to the string if it was converted via Encoding.ASCII.GetString(...)
-        return true;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static unsafe void WidenFourAsciiBytesToUtf16AndWriteToBuffer(char* output, byte* input, int value)
-    {
-        // BMI2 could be used, but this variant is faster on both Intel and AMD.
-        if (Vector128.IsHardwareAccelerated)
-        {
-            var vecNarrow = Vector128.CreateScalarUnsafe(value).AsByte();
-            var vecWide = Vector128.Widen(vecNarrow).Lower.AsUInt64();
-            Unsafe.WriteUnaligned(output, vecWide.ToScalar());
-        }
-        else
-        {
-            output[0] = (char)input[0];
-            output[1] = (char)input[1];
-            output[2] = (char)input[2];
-            output[3] = (char)input[3];
-        }
-    }
-
-    /// <summary>
-    /// Given a DWORD which represents a buffer of 4 bytes, widens the buffer into 4 WORDs and
-    /// compares them to the WORD buffer with machine endianness.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool WidenFourAsciiBytesToUtf16AndCompareToChars(ref char charStart, uint value)
-    {
-        if (!AllBytesInUInt32AreAscii(value))
-        {
-            return false;
-        }
-
-        // BMI2 could be used, but this variant is faster on both Intel and AMD.
-        if (Vector128.IsHardwareAccelerated)
-        {
-            var vecNarrow = Vector128.CreateScalarUnsafe(value).AsByte();
-            var vecWide = Vector128.Widen(vecNarrow).Lower.AsUInt64();
-            return Unsafe.ReadUnaligned<ulong>(ref Unsafe.As<char, byte>(ref charStart)) ==
-                vecWide.ToScalar();
-        }
-        else
-        {
-            if (BitConverter.IsLittleEndian)
-            {
-                return charStart == (char)(byte)value &&
-                    Unsafe.Add(ref charStart, 1) == (char)(byte)(value >> 8) &&
-                    Unsafe.Add(ref charStart, 2) == (char)(byte)(value >> 16) &&
-                    Unsafe.Add(ref charStart, 3) == (char)(value >> 24);
-            }
-            else
-            {
-                return Unsafe.Add(ref charStart, 3) == (char)(byte)value &&
-                    Unsafe.Add(ref charStart, 2) == (char)(byte)(value >> 8) &&
-                    Unsafe.Add(ref charStart, 1) == (char)(byte)(value >> 16) &&
-                    charStart == (char)(value >> 24);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Given a WORD which represents a buffer of 2 bytes, widens the buffer into 2 WORDs and
-    /// compares them to the WORD buffer with machine endianness.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining | MethodImplOptions.AggressiveOptimization)]
-    private static bool WidenTwoAsciiBytesToUtf16AndCompareToChars(ref char charStart, ushort value)
-    {
-        if (!AllBytesInUInt16AreAscii(value))
-        {
-            return false;
-        }
-
-        // BMI2 could be used, but this variant is faster on both Intel and AMD.
-        if (Vector128.IsHardwareAccelerated)
-        {
-            var vecNarrow = Vector128.CreateScalarUnsafe(value).AsByte();
-            var vecWide = Vector128.Widen(vecNarrow).Lower.AsUInt32();
-            return Unsafe.ReadUnaligned<uint>(ref Unsafe.As<char, byte>(ref charStart)) ==
-                vecWide.ToScalar();
-        }
-        else
-        {
-            if (BitConverter.IsLittleEndian)
-            {
-                return charStart == (char)(byte)value &&
-                    Unsafe.Add(ref charStart, 1) == (char)(byte)(value >> 8);
-            }
-            else
-            {
-                return Unsafe.Add(ref charStart, 1) == (char)(byte)value &&
-                    charStart == (char)(byte)(value >> 8);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Returns <see langword="true"/> iff all bytes in <paramref name="value"/> are ASCII.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool AllBytesInUInt32AreAscii(uint value)
-    {
-        return (value & 0x80808080u) == 0;
-    }
-
-    /// <summary>
-    /// Returns <see langword="true"/> iff all bytes in <paramref name="value"/> are ASCII.
-    /// </summary>
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static bool AllBytesInUInt16AreAscii(ushort value)
-    {
-        return (value & 0x8080u) == 0;
+        return Ascii.Equals(newValue, previousValue);
     }
 
     /// <summary>
@@ -725,105 +251,5 @@ internal static class StringUtilities
             buffer[1] = (char)hexEncodeMap[(number >> 24) & 0xF];
             buffer[0] = (char)hexEncodeMap[(number >> 28) & 0xF];
         }
-    }
-
-    private interface IBytesCheck
-    {
-        static abstract bool CheckBytes(Vector256<sbyte> value, Vector256<sbyte> zero);
-        static abstract bool CheckBytes(Vector128<sbyte> value, Vector128<sbyte> zero);
-        static abstract bool CheckBytes(long value);
-        static abstract bool CheckBytes(int value);
-        static abstract bool CheckBytes(short value);
-        static abstract bool CheckBytes(sbyte value);
-    }
-
-    private struct BytesInAsciiRangeCheck : IBytesCheck
-    {
-        // Vectorized byte range check, signed byte > 0 for 1-127
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(Vector256<sbyte> value, Vector256<sbyte> zero)
-        {
-            Debug.Assert(Vector256.IsHardwareAccelerated);
-
-            var mask = Vector256.GreaterThan(value, zero);
-            return mask.ExtractMostSignificantBits() == 0xFFFF_FFFF;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(Vector128<sbyte> value, Vector128<sbyte> zero)
-        {
-            Debug.Assert(Vector128.IsHardwareAccelerated);
-
-            var mask = Vector128.GreaterThan(value, zero);
-            return mask.ExtractMostSignificantBits() == 0xFFFF;
-        }
-
-        // Validate: bytes != 0 && bytes <= 127
-        //  Subtract 1 from all bytes to move 0 to high bits
-        //  bitwise or with self to catch all > 127 bytes
-        //  mask off non high bits and check if 0
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(long value)
-        {
-            const long HighBits = unchecked((long)0x8080808080808080L);
-            return (((value - 0x0101010101010101L) | value) & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(int value)
-        {
-            const int HighBits = unchecked((int)0x80808080);
-            return (((value - 0x01010101) | value) & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(short value)
-        {
-            const short HighBits = unchecked((short)0x8080);
-            return (((short)(value - 0x0101) | value) & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(sbyte value) => value > 0;
-    }
-
-    private struct BytesNotNullCheck : IBytesCheck
-    {
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(Vector256<sbyte> value, Vector256<sbyte> zero) => !Vector256.EqualsAny(value, zero);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(Vector128<sbyte> value, Vector128<sbyte> zero) => !Vector128.EqualsAny(value, zero);
-
-        // Validate: bytes != 0
-        //  Subtract 1 from all bytes to move 0 to high bits
-        //  bitwise and with ~check so high bits are only set for bytes that were originally 0
-        //  mask off non high bits and check if 0
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(long value)
-        {
-            const long HighBits = unchecked((long)0x8080808080808080L);
-            return ((value - 0x0101010101010101L) & ~value & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(int value)
-        {
-            const int HighBits = unchecked((int)0x80808080);
-            return ((value - 0x01010101) & ~value & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(short value)
-        {
-            const short HighBits = unchecked((short)0x8080);
-            return ((value - 0x0101) & ~value & HighBits) == 0;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool CheckBytes(sbyte value) => value != 0;
     }
 }
