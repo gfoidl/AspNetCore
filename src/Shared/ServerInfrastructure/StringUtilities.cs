@@ -122,17 +122,30 @@ internal static class StringUtilities
     {
         ReadOnlySpan<byte> source = new(state.ToPointer(), buffer.Length);
 
-        // TODO: this check should be done in Latin1.ToUtf16 as extra mode.
+        // TODO: this check should be done in Ascii.ToUtf16 as extra mode.
         if (source.IndexOf((byte)0) >= 0)
         {
             throw new InvalidOperationException();
         }
 
-        OperationStatus status = Latin1.ToUtf16(source, buffer, out _, out _);
+        OperationStatus status = Ascii.ToUtf16(source, buffer, out int consumed, out _);
 
-        if (status != OperationStatus.Done)
+        if (status == OperationStatus.Done)
         {
-            throw new InvalidOperationException();
+            return;
+        }
+
+        // There was non-ASCII input, so process the remainder scalar.
+        for (int i = consumed; i < source.Length; ++i)
+        {
+            byte value = source[i];
+
+            if (value == 0)
+            {
+                throw new InvalidOperationException();
+            }
+
+            buffer[i] = (char)value;
         }
     }
 
